@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CarbonTrack - Households</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="navbar">
+        <h1>CarbonTrack</h1>
+        <nav aria-label="Main navigation">
+            <a href="index.html">Dashboard</a><a href="households.html" aria-current="page">Households</a>
+            <a href="activities.html">Activities</a><a href="challenges.html">Challenges</a><a href="leaderboard.html">Leaderboard</a>
+        </nav>
+    </header>
+    <main class="container">
+        <h2 class="page-title">Households</h2>
+        <p class="page-subtitle">Register and manage participating households.</p>
+        <div id="message" class="message" role="status"></div>
+        <section class="panel">
+            <h2>Register New Household</h2>
+            <form id="householdForm">
+                <div class="form-grid">
+                    <input type="text" id="name" placeholder="Household name" aria-label="Household name" required maxlength="255">
+                    <input type="email" id="email" placeholder="Email address" aria-label="Email address" required maxlength="255">
+                    <input type="text" id="city" placeholder="City (optional)" aria-label="City" maxlength="255">
+                    <button type="submit">Register Household</button>
+                </div>
+            </form>
+        </section>
+        <section class="panel">
+            <h2>All Households</h2>
+            <div class="table-wrap"><table>
+                <thead><tr><th>ID</th><th>Name</th><th>Email</th><th>City</th><th>Registered</th><th>Action</th></tr></thead>
+                <tbody id="householdsTable"><tr><td colspan="6" class="empty-state">Loading households...</td></tr></tbody>
+            </table></div>
+        </section>
+    </main>
+    <script>
+        const message = document.getElementById('message');
+        function showMessage(text, type = 'success') {
+            message.className = `message ${type}`;
+            message.textContent = text;
+            window.clearTimeout(showMessage.timer);
+            showMessage.timer = window.setTimeout(() => { message.className = 'message'; }, 4500);
+        }
+        function cell(row, value) {
+            const element = document.createElement('td');
+            element.textContent = value == null || value === '' ? '-' : value;
+            row.append(element);
+            return element;
+        }
+        async function loadHouseholds() {
+            const body = document.getElementById('householdsTable');
+            try {
+                const response = await fetch('/api/households');
+                if (!response.ok) throw new Error('Could not load households.');
+                const households = await response.json();
+                body.replaceChildren();
+                if (!households.length) {
+                    const row = body.insertRow();
+                    const empty = cell(row, 'No households registered yet.');
+                    empty.colSpan = 6;
+                    empty.className = 'empty-state';
+                    return;
+                }
+                households.forEach(household => {
+                    const row = body.insertRow();
+                    cell(row, household.id);
+                    const name = cell(row, household.name);
+                    name.style.fontWeight = '600';
+                    cell(row, household.email);
+                    cell(row, household.city);
+                    cell(row, household.createdAt);
+                    const action = cell(row, '');
+                    const remove = document.createElement('button');
+                    remove.type = 'button';
+                    remove.className = 'danger';
+                    remove.textContent = 'Delete';
+                    remove.setAttribute('aria-label', `Delete ${household.name}`);
+                    remove.addEventListener('click', () => deleteHousehold(household.id, household.name));
+                    action.append(remove);
+                });
+            } catch (error) {
+                body.replaceChildren();
+                const row = body.insertRow();
+                const empty = cell(row, error.message);
+                empty.colSpan = 6;
+                empty.className = 'empty-state';
+            }
+        }
+        async function deleteHousehold(id, name) {
+            if (!window.confirm(`Delete ${name}? Its activities and challenge participations will also be removed.`)) return;
+            try {
+                const response = await fetch(`/api/households/${id}`, { method: 'DELETE' });
+                if (!response.ok) throw new Error('Could not delete household.');
+                showMessage('Household deleted.');
+                await loadHouseholds();
+            } catch (error) { showMessage(error.message, 'error'); }
+        }
+        document.getElementById('householdForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            const submit = event.submitter;
+            submit.disabled = true;
+            try {
+                const response = await fetch('/api/households', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        name: document.getElementById('name').value.trim(),
+                        email: document.getElementById('email').value.trim(),
+                        city: document.getElementById('city').value.trim() || null
+                    })
+                });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Could not register household.');
+                }
+                document.getElementById('householdForm').reset();
+                showMessage('Household registered successfully.');
+                await loadHouseholds();
+            } catch (error) { showMessage(error.message, 'error'); }
+            finally { submit.disabled = false; }
+        });
+        loadHouseholds();
+    </script>
+</body>
+</html>

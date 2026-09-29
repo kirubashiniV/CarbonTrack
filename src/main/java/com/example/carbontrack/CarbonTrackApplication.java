@@ -1,0 +1,12 @@
+package com.example.carbontrack;
+
+import org.springframework.boot.SpringApplication;
+import org.springframework.boot.autoconfigure.SpringBootApplication;
+
+@SpringBootApplication
+public class CarbonTrackApplication {
+
+    public static void main(String[] args) {
+        SpringApplication.run(CarbonTrackApplication.class, args);
+    }
+}

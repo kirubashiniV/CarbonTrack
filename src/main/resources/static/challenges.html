@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CarbonTrack - Challenges</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="navbar">
+        <h1>CarbonTrack</h1>
+        <nav aria-label="Main navigation">
+            <a href="index.html">Dashboard</a><a href="households.html">Households</a><a href="activities.html">Activities</a>
+            <a href="challenges.html" aria-current="page">Challenges</a><a href="leaderboard.html">Leaderboard</a>
+        </nav>
+    </header>
+    <main class="container">
+        <h2 class="page-title">Community Challenges</h2>
+        <p class="page-subtitle">Set a reduction target and track participating households.</p>
+        <div id="message" class="message" role="status"></div>
+        <section class="panel">
+            <h2>Create Challenge</h2>
+            <form id="challengeForm">
+                <div class="form-grid">
+                    <input type="text" id="title" placeholder="Challenge title" aria-label="Challenge title" required maxlength="255">
+                    <input type="text" id="description" placeholder="Description (optional)" aria-label="Description">
+                    <input type="number" step="0.1" id="target" placeholder="Target reduction (%)" aria-label="Target reduction percent" required min="0.1">
+                    <input type="date" id="startDate" aria-label="Start date" required>
+                    <input type="date" id="endDate" aria-label="End date" required>
+                    <button type="submit">Create Challenge</button>
+                </div>
+            </form>
+        </section>
+        <section class="panel">
+            <h2>Join a Challenge</h2>
+            <form id="joinForm" class="form-grid">
+                <select id="joinChallengeId" aria-label="Challenge" required><option value="">Select challenge</option></select>
+                <select id="joinHouseholdId" aria-label="Household" required><option value="">Select household</option></select>
+                <button type="submit">Join Challenge</button>
+            </form>
+        </section>
+        <section class="panel">
+            <h2>All Challenges</h2>
+            <div class="table-wrap"><table>
+                <thead><tr><th>ID</th><th>Challenge</th><th>Target</th><th>Start</th><th>End</th><th>Participants</th><th>Action</th></tr></thead>
+                <tbody id="challengesTable"><tr><td colspan="7" class="empty-state">Loading challenges...</td></tr></tbody>
+            </table></div>
+        </section>
+        <section class="panel">
+            <h2>Challenge Participants</h2>
+            <div class="form-grid"><select id="participantChallengeId" aria-label="Challenge participants"><option value="">Select challenge</option></select></div>
+            <div class="table-wrap"><table>
+                <thead><tr><th>Household</th><th>Joined</th><th>Baseline (kg)</th><th>Current (kg)</th><th>Progress</th></tr></thead>
+                <tbody id="participantsTable"><tr><td colspan="5" class="empty-state">Select a challenge to see participants.</td></tr></tbody>
+            </table></div>
+        </section>
+    </main>
+    <script>
+        const message = document.getElementById('message');
+        function showMessage(text, type = 'success') {
+            message.className = `message ${type}`;
+            message.textContent = text;
+            window.clearTimeout(showMessage.timer);
+            showMessage.timer = window.setTimeout(() => { message.className = 'message'; }, 4500);
+        }
+        function cell(row, value) {
+            const element = row.insertCell();
+            element.textContent = value == null || value === '' ? '-' : value;
+            return element;
+        }
+        async function loadChallenges() {
+            const response = await fetch('/api/challenges');
+            if (!response.ok) throw new Error('Could not load challenges.');
+            const challenges = await response.json();
+            const selects = ['joinChallengeId', 'participantChallengeId'].map(id => document.getElementById(id));
+            selects.forEach(select => {
+                const selected = select.value;
+                select.replaceChildren(new Option('Select challenge', ''));
+                challenges.forEach(challenge => select.add(new Option(`${challenge.title} (#${challenge.id})`, challenge.id)));
+                select.value = selected;
+            });
+            const body = document.getElementById('challengesTable');
+            body.replaceChildren();
+            if (!challenges.length) {
+                const row = body.insertRow();
+                const empty = cell(row, 'No challenges created yet.');
+                empty.colSpan = 7;
+                empty.className = 'empty-state';
+                return;
+            }
+            const counts = await Promise.all(challenges.map(challenge =>
+                fetch(`/api/challenges/${challenge.id}/participants`).then(r => r.ok ? r.json() : []).catch(() => [])
+            ));
+            challenges.forEach((challenge, index) => {
+                const row = body.insertRow();
+                cell(row, challenge.id);
+                const title = cell(row, challenge.title);
+                title.style.fontWeight = '600';
+                cell(row, challenge.targetReductionPercent + '%');
+                cell(row, challenge.startDate);
+                cell(row, challenge.endDate);
+                cell(row, counts[index].length);
+                const action = cell(row, '');
+                const remove = document.createElement('button');
+                remove.type = 'button';
+                remove.className = 'danger';
+                remove.textContent = 'Delete';
+                remove.addEventListener('click', () => deleteChallenge(challenge.id, challenge.title));
+                action.append(remove);
+            });
+        }
+        async function loadHouseholds() {
+            const response = await fetch('/api/households');
+            if (!response.ok) throw new Error('Could not load households.');
+            const households = await response.json();
+            const select = document.getElementById('joinHouseholdId');
+            households.forEach(household => select.add(new Option(`${household.name} (#${household.id})`, household.id)));
+        }
+        async function deleteChallenge(id, title) {
+            if (!window.confirm(`Delete challenge “${title}” and its participant records?`)) return;
+            try {
+                const response = await fetch(`/api/challenges/${id}`, { method: 'DELETE' });
+                if (!response.ok) throw new Error('Could not delete challenge.');
+                showMessage('Challenge deleted.');
+                await loadChallenges();
+                document.getElementById('participantsTable').replaceChildren();
+            } catch (error) { showMessage(error.message, 'error'); }
+        }
+        async function loadParticipants(challengeId) {
+            const body = document.getElementById('participantsTable');
+            body.replaceChildren();
+            if (!challengeId) {
+                const row = body.insertRow();
+                const empty = cell(row, 'Select a challenge to see participants.');
+                empty.colSpan = 5;
+                empty.className = 'empty-state';
+                return;
+            }
+            try {
+                const response = await fetch(`/api/challenges/${challengeId}/participants`);
+                if (!response.ok) throw new Error('Could not load participants.');
+                const participants = await response.json();
+                if (!participants.length) {
+                    const row = body.insertRow();
+                    const empty = cell(row, 'No households have joined this challenge yet.');
+                    empty.colSpan = 5;
+                    empty.className = 'empty-state';
+                    return;
+                }
+                participants.forEach(participant => {
+                    const row = body.insertRow();
+                    cell(row, participant.household?.name || `Household #${participant.household?.id || ''}`);
+                    cell(row, participant.joinedAt);
+                    cell(row, Number(participant.baselineFootprint).toFixed(2));
+                    cell(row, Number(participant.currentFootprint).toFixed(2));
+                    cell(row, `${Number(participant.progressPercent).toFixed(2)}%`);
+                });
+            } catch (error) {
+                const row = body.insertRow();
+                const empty = cell(row, error.message);
+                empty.colSpan = 5;
+                empty.className = 'empty-state';
+            }
+        }
+        document.getElementById('challengeForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            const submit = event.submitter;
+            submit.disabled = true;
+            try {
+                const response = await fetch('/api/challenges', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        title: document.getElementById('title').value.trim(),
+                        description: document.getElementById('description').value.trim() || null,
+                        targetReductionPercent: Number(document.getElementById('target').value),
+                        startDate: document.getElementById('startDate').value,
+                        endDate: document.getElementById('endDate').value
+                    })
+                });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Could not create challenge.');
+                }
+                document.getElementById('challengeForm').reset();
+                showMessage('Challenge created successfully.');
+                await loadChallenges();
+            } catch (error) { showMessage(error.message, 'error'); }
+            finally { submit.disabled = false; }
+        });
+        document.getElementById('joinForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            const submit = event.submitter;
+            submit.disabled = true;
+            try {
+                const challengeId = document.getElementById('joinChallengeId').value;
+                const response = await fetch(`/api/challenges/${challengeId}/join`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ householdId: Number(document.getElementById('joinHouseholdId').value) })
+                });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Could not join challenge.');
+                }
+                showMessage('Household joined the challenge.');
+                await loadChallenges();
+                document.getElementById('participantChallengeId').value = challengeId;
+                await loadParticipants(challengeId);
+            } catch (error) { showMessage(error.message, 'error'); }
+            finally { submit.disabled = false; }
+        });
+        document.getElementById('participantChallengeId').addEventListener('change', event => loadParticipants(event.target.value));
+        Promise.all([loadChallenges(), loadHouseholds()]).catch(error => showMessage(error.message, 'error'));
+    </script>
+</body>
+</html>

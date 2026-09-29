@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CarbonTrack - Leaderboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="navbar">
+        <h1>CarbonTrack</h1>
+        <nav aria-label="Main navigation">
+            <a href="index.html">Dashboard</a><a href="households.html">Households</a><a href="activities.html">Activities</a>
+            <a href="challenges.html">Challenges</a><a href="leaderboard.html" aria-current="page">Leaderboard</a>
+        </nav>
+    </header>
+    <main class="container">
+        <h2 class="page-title">Community Leaderboard</h2>
+        <p class="page-subtitle">Ranked by percentage reduction compared with each household's own previous month.</p>
+        <div id="message" class="message" role="status"></div>
+        <section class="panel">
+            <form id="leaderboardForm" class="form-grid">
+                <input type="month" id="month" aria-label="Leaderboard month" required>
+                <button type="submit">Refresh Rankings</button>
+            </form>
+        </section>
+        <section class="panel">
+            <h2>Rankings</h2>
+            <div class="table-wrap"><table>
+                <thead><tr><th>Rank</th><th>Household</th><th>Reduction</th><th>Previous month (kg)</th><th>Current month (kg)</th></tr></thead>
+                <tbody id="leaderboardTable"><tr><td colspan="5" class="empty-state">Loading rankings...</td></tr></tbody>
+            </table></div>
+        </section>
+        <section class="panel">
+            <h2>How Ranking Works</h2>
+            <p style="line-height: 1.7; color: #475569;">
+                Households are ranked by the percentage change in footprint compared with their own previous month,
+                not by absolute emissions. A zero previous-month footprint is assigned a 0% reduction.
+            </p>
+            <p style="line-height: 1.7; color: #475569; margin-top: 12px;">
+                <strong>Formula:</strong> <code style="background:#f1f5f9; padding: 4px 8px; border-radius:4px;">
+                ((previous month - current month) / previous month) x 100</code>
+            </p>
+        </section>
+    </main>
+    <script>
+        const message = document.getElementById('message');
+        function addCell(row, value) {
+            const cell = row.insertCell();
+            cell.textContent = value;
+            return cell;
+        }
+        async function loadLeaderboard() {
+            const month = document.getElementById('month').value;
+            const body = document.getElementById('leaderboardTable');
+            try {
+                const response = await fetch(`/api/leaderboard?month=${encodeURIComponent(month)}`);
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Could not load rankings.');
+                }
+                const entries = await response.json();
+                body.replaceChildren();
+                if (!entries.length) {
+                    const row = body.insertRow();
+                    const empty = addCell(row, 'No households to rank yet.');
+                    empty.colSpan = 5;
+                    empty.className = 'empty-state';
+                    return;
+                }
+                entries.forEach((entry, index) => {
+                    const row = body.insertRow();
+                    const rankCell = addCell(row, '');
+                    const badge = document.createElement('span');
+                    badge.className = `badge ${index < 3 ? `rank-${index + 1}` : 'active'}`;
+                    badge.textContent = `#${index + 1}`;
+                    rankCell.append(badge);
+                    const name = addCell(row, entry.householdName || `Household #${entry.householdId}`);
+                    name.style.fontWeight = '600';
+                    const reduction = addCell(row, `${Number(entry.percentReduction).toFixed(2)}%`);
+                    reduction.style.color = Number(entry.percentReduction) >= 0 ? '#166534' : '#b91c1c';
+                    reduction.style.fontWeight = '700';
+                    addCell(row, Number(entry.previousMonthFootprint).toFixed(2));
+                    addCell(row, Number(entry.currentMonthFootprint).toFixed(2));
+                });
+                message.className = 'message';
+            } catch (error) {
+                message.className = 'message error';
+                message.textContent = error.message;
+                body.replaceChildren();
+                const row = body.insertRow();
+                const empty = addCell(row, 'Rankings are unavailable.');
+                empty.colSpan = 5;
+                empty.className = 'empty-state';
+            }
+        }
+        document.getElementById('leaderboardForm').addEventListener('submit', event => {
+            event.preventDefault();
+            loadLeaderboard();
+        });
+        document.getElementById('month').value = new Date().toISOString().slice(0, 7);
+        loadLeaderboard();
+    </script>
+</body>
+</html>

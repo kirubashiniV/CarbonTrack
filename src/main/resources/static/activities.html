@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CarbonTrack - Activities</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="navbar">
+        <h1>CarbonTrack</h1>
+        <nav aria-label="Main navigation">
+            <a href="index.html">Dashboard</a><a href="households.html">Households</a>
+            <a href="activities.html" aria-current="page">Activities</a><a href="challenges.html">Challenges</a><a href="leaderboard.html">Leaderboard</a>
+        </nav>
+    </header>
+    <main class="container">
+        <h2 class="page-title">Daily Activities</h2>
+        <p class="page-subtitle">Record commutes, electricity use, and waste generation.</p>
+        <div id="message" class="message" role="status"></div>
+        <section class="panel">
+            <h2>Log New Activity</h2>
+            <form id="activityForm">
+                <div class="form-grid">
+                    <select id="householdId" aria-label="Household" required><option value="">Select household</option></select>
+                    <select id="activityType" aria-label="Activity type" required>
+                        <option value="">Select activity</option>
+                        <option value="COMMUTE_CAR">Car commute (km)</option><option value="COMMUTE_BUS">Bus commute (km)</option>
+                        <option value="COMMUTE_BIKE">Bike commute (km)</option><option value="COMMUTE_TRAIN">Train commute (km)</option>
+                        <option value="ELECTRICITY">Electricity (kWh)</option><option value="WASTE">Waste (kg)</option>
+                    </select>
+                    <input type="number" step="0.01" id="value" placeholder="Quantity" aria-label="Quantity" required min="0.01">
+                    <input type="date" id="logDate" aria-label="Activity date" required>
+                    <button type="submit">Log Activity</button>
+                </div>
+            </form>
+        </section>
+        <section class="panel">
+            <h2>Monthly Footprint</h2>
+            <form id="footprintForm" class="form-grid">
+                <select id="fpHouseholdId" aria-label="Household for footprint" required><option value="">Select household</option></select>
+                <input type="month" id="fpMonth" aria-label="Footprint month" required>
+                <button type="submit">Calculate Footprint</button>
+            </form>
+            <div id="footprintResult" aria-live="polite"></div>
+        </section>
+        <section class="panel">
+            <h2>Activity Logs</h2>
+            <div class="form-grid"><select id="listHouseholdId" aria-label="Filter activities by household"><option value="">Select household to view logs</option></select></div>
+            <div class="table-wrap"><table>
+                <thead><tr><th>ID</th><th>Household</th><th>Activity</th><th>Quantity</th><th>Date</th></tr></thead>
+                <tbody id="activitiesTable"><tr><td colspan="5" class="empty-state">Select a household to view activities.</td></tr></tbody>
+            </table></div>
+        </section>
+    </main>
+    <script>
+        const message = document.getElementById('message');
+        function showMessage(text, type = 'success') {
+            message.className = `message ${type}`;
+            message.textContent = text;
+            window.clearTimeout(showMessage.timer);
+            showMessage.timer = window.setTimeout(() => { message.className = 'message'; }, 4500);
+        }
+        function addCell(row, value) {
+            const cell = row.insertCell();
+            cell.textContent = value == null || value === '' ? '-' : value;
+            return cell;
+        }
+        async function loadHouseholds() {
+            const response = await fetch('/api/households');
+            if (!response.ok) throw new Error('Could not load households.');
+            const households = await response.json();
+            ['householdId', 'fpHouseholdId', 'listHouseholdId'].forEach(id => {
+                const select = document.getElementById(id);
+                households.forEach(h => {
+                    const option = document.createElement('option');
+                    option.value = h.id;
+                    option.textContent = `${h.name} (#${h.id})`;
+                    select.append(option);
+                });
+            });
+        }
+        async function loadActivities(householdId) {
+            const body = document.getElementById('activitiesTable');
+            if (!householdId) return;
+            try {
+                const response = await fetch(`/api/households/${householdId}/activities`);
+                if (!response.ok) throw new Error('Could not load activities.');
+                const activities = await response.json();
+                body.replaceChildren();
+                if (!activities.length) {
+                    const row = body.insertRow();
+                    const cell = addCell(row, 'No activities logged for this household yet.');
+                    cell.colSpan = 5;
+                    cell.className = 'empty-state';
+                    return;
+                }
+                activities.forEach(activity => {
+                    const row = body.insertRow();
+                    addCell(row, activity.id);
+                    addCell(row, activity.household?.name || `Household #${activity.household?.id || householdId}`);
+                    const type = addCell(row, activity.activityType);
+                    type.style.fontWeight = '600';
+                    addCell(row, activity.value);
+                    addCell(row, activity.logDate);
+                });
+            } catch (error) {
+                body.replaceChildren();
+                const row = body.insertRow();
+                const cell = addCell(row, error.message);
+                cell.colSpan = 5;
+                cell.className = 'empty-state';
+            }
+        }
+        document.getElementById('activityForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            const form = event.currentTarget;
+            const householdId = document.getElementById('householdId').value;
+            const submit = event.submitter;
+            submit.disabled = true;
+            try {
+                const response = await fetch(`/api/households/${householdId}/activities`, {
+                    method: 'POST', headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        activityType: document.getElementById('activityType').value,
+                        value: Number(document.getElementById('value').value),
+                        logDate: document.getElementById('logDate').value
+                    })
+                });
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Could not log activity.');
+                }
+                form.reset();
+                document.getElementById('logDate').value = new Date().toISOString().slice(0, 10);
+                showMessage('Activity logged successfully.');
+                await loadActivities(document.getElementById('listHouseholdId').value || householdId);
+            } catch (error) { showMessage(error.message, 'error'); }
+            finally { submit.disabled = false; }
+        });
+        document.getElementById('listHouseholdId').addEventListener('change', event => loadActivities(event.target.value));
+        document.getElementById('footprintForm').addEventListener('submit', async event => {
+            event.preventDefault();
+            const householdId = document.getElementById('fpHouseholdId').value;
+            const month = document.getElementById('fpMonth').value;
+            const result = document.getElementById('footprintResult');
+            try {
+                const response = await fetch(`/api/households/${householdId}/footprint?month=${encodeURIComponent(month)}`);
+                if (!response.ok) {
+                    const error = await response.json();
+                    throw new Error(error.message || 'Could not calculate footprint.');
+                }
+                const footprint = await response.json();
+                result.replaceChildren();
+                const card = document.createElement('div');
+                card.className = 'card green';
+                const label = document.createElement('div');
+                label.className = 'label';
+                label.textContent = `Monthly footprint · ${month}`;
+                const number = document.createElement('div');
+                number.className = 'result-value';
+                number.textContent = `${Number(footprint).toFixed(2)} kg CO2e`;
+                card.append(label, number);
+                result.append(card);
+            } catch (error) {
+                result.textContent = error.message;
+                result.style.color = '#991b1b';
+            }
+        });
+        document.getElementById('logDate').value = new Date().toISOString().slice(0, 10);
+        document.getElementById('fpMonth').value = new Date().toISOString().slice(0, 7);
+        loadHouseholds().catch(error => showMessage(error.message, 'error'));
+    </script>
+</body>
+</html>

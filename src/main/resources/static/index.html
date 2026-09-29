@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>CarbonTrack - Dashboard</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header class="navbar">
+        <h1>CarbonTrack</h1>
+        <nav aria-label="Main navigation">
+            <a href="index.html" aria-current="page">Dashboard</a>
+            <a href="households.html">Households</a>
+            <a href="activities.html">Activities</a>
+            <a href="challenges.html">Challenges</a>
+            <a href="leaderboard.html">Leaderboard</a>
+        </nav>
+    </header>
+    <main class="container">
+        <h2 class="page-title">Dashboard</h2>
+        <p class="page-subtitle">A live overview of household activity and community progress.</p>
+        <div id="loadMessage" class="message" role="status"></div>
+        <section class="cards" aria-label="CarbonTrack totals">
+            <article class="card green"><div class="label">Households</div><div class="number" id="countHouseholds">-</div></article>
+            <article class="card blue"><div class="label">Activity Logs</div><div class="number" id="countActivities">-</div></article>
+            <article class="card orange"><div class="label">Challenges</div><div class="number" id="countChallenges">-</div></article>
+            <article class="card purple"><div class="label">Participations</div><div class="number" id="countParticipations">-</div></article>
+        </section>
+        <section class="panel">
+            <h2>Quick Actions</h2>
+            <a href="households.html" class="link-btn">Manage Households</a>
+            <a href="activities.html" class="link-btn">Log Activities</a>
+            <a href="challenges.html" class="link-btn">View Challenges</a>
+            <a href="leaderboard.html" class="link-btn">View Leaderboard</a>
+        </section>
+        <section class="panel">
+            <h2>About CarbonTrack</h2>
+            <p style="line-height: 1.7; color: #475569;">
+                CarbonTrack estimates household carbon footprints from commuting, electricity usage,
+                and waste generation. Monthly emissions use fixed factors, and the community leaderboard
+                rewards each household's percentage reduction compared with its own previous month.
+            </p>
+        </section>
+    </main>
+    <script>
+        async function getJson(url) {
+            const response = await fetch(url);
+            if (!response.ok) throw new Error(`Request failed (${response.status})`);
+            return response.json();
+        }
+
+        async function loadCounts() {
+            const message = document.getElementById('loadMessage');
+            try {
+                const [households, challenges] = await Promise.all([
+                    getJson('/api/households'), getJson('/api/challenges')
+                ]);
+                const activityGroups = await Promise.all(households.map(h =>
+                    getJson(`/api/households/${h.id}/activities`).catch(() => [])
+                ));
+                const participationGroups = await Promise.all(challenges.map(c =>
+                    getJson(`/api/challenges/${c.id}/participants`).catch(() => [])
+                ));
+                document.getElementById('countHouseholds').textContent = households.length;
+                document.getElementById('countActivities').textContent = activityGroups.reduce((sum, logs) => sum + logs.length, 0);
+                document.getElementById('countChallenges').textContent = challenges.length;
+                document.getElementById('countParticipations').textContent = participationGroups.reduce((sum, rows) => sum + rows.length, 0);
+            } catch (error) {
+                message.className = 'message error';
+                message.textContent = 'Could not load dashboard totals. Check that the API and database are available.';
+            }
+        }
+        loadCounts();
+    </script>
+</body>
+</html>
